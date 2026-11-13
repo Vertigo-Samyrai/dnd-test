@@ -4,128 +4,101 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
-    <title>D&D Test Mini App</title>
+    <title>D&D Python Server Test</title>
     <style>
-        body {
-            background-color: #181825;
-            color: #cdd6f4;
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-            margin: 0;
-            padding: 16px;
-            text-align: center;
-        }
-        .card {
-            background-color: #1e1e2e;
-            border: 1px solid #313244;
-            border-radius: 14px;
-            padding: 16px;
-            margin-bottom: 16px;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
-        }
-        .dice-box {
-            font-size: 56px;
-            font-weight: bold;
-            color: #cba6f7;
-            margin: 16px 0;
-            min-height: 70px;
-        }
-        .crit-success { color: #a6e3a1; }
-        .crit-fail { color: #f38ba8; }
-        button {
-            width: 100%;
-            padding: 14px;
-            background-color: #cba6f7;
-            color: #11111b;
-            border: none;
-            border-radius: 10px;
-            font-size: 18px;
-            font-weight: bold;
-            cursor: pointer;
-        }
-        button:active { transform: scale(0.98); }
-        #log {
-            text-align: left;
-            font-size: 14px;
-            max-height: 180px;
-            overflow-y: auto;
-            color: #a6adc8;
-        }
-        .badge {
-            display: inline-block;
-            background: #313244;
-            padding: 4px 10px;
-            border-radius: 6px;
-            font-size: 12px;
-            color: #89b4fa;
-            margin-top: 6px;
-        }
+        body { background: #181825; color: #cdd6f4; font-family: sans-serif; padding: 16px; margin: 0; }
+        .card { background: #1e1e2e; border: 1px solid #313244; border-radius: 12px; padding: 14px; margin-bottom: 12px; }
+        .row { display: flex; justify-content: space-between; margin: 6px 0; font-size: 15px; }
+        .dice-val { font-size: 42px; font-weight: bold; text-align: center; color: #cba6f7; margin: 10px 0; }
+        button { width: 100%; padding: 14px; background: #cba6f7; color: #11111b; border: none; border-radius: 10px; font-size: 16px; font-weight: bold; cursor: pointer; }
+        button:active { opacity: 0.85; }
+        .log-item { font-size: 13px; padding: 6px 0; border-bottom: 1px solid #313244; color: #a6adc8; }
+        .status-ok { color: #a6e3a1; font-size: 12px; }
+        .status-err { color: #f38ba8; font-size: 13px; }
     </style>
 </head>
 <body>
 
     <div class="card">
-        <h2 id="greeting" style="margin: 0 0 6px 0;">Таверна открыта</h2>
-        <div id="user-info" class="badge">Проверка входа...</div>
+        <div style="display:flex; justify-content:space-between; align-items:center;">
+            <h3 id="hero-name" style="margin:0;">Подключение к ноутбуку...</h3>
+            <span id="conn-status" class="status-ok">⏳</span>
+        </div>
+        <div class="row"><span>Класс:</span> <b id="hero-class">—</b></div>
+        <div class="row"><span>Здоровье (HP):</span> <b id="hero-hp">—</b></div>
+        <div class="row"><span>Класс Доспеха (AC):</span> <b id="hero-ac">—</b></div>
+        <div class="row"><span>Бонус атаки (Сила):</span> <b id="hero-mod">—</b></div>
     </div>
 
     <div class="card">
-        <div>Результат броска d20:</div>
-        <div id="dice-result" class="dice-box">🎲</div>
-        <button onclick="rollD20()">⚔️ Бросить кубик d20</button>
+        <div id="dice-display" class="dice-val">🎲</div>
+        <button onclick="rollOnServer()">⚔️ Атаковать (расчёт на Python)</button>
     </div>
 
     <div class="card">
-        <b style="display:block; text-align:left; margin-bottom:8px;">Журнал событий:</b>
-        <div id="log">Нажмите на кнопку выше, чтобы сделать первый бросок...</div>
+        <b style="display:block; margin-bottom:8px;">Общий журнал комнаты (с ноутбука):</b>
+        <div id="party-log">Ожидание ответа сервера...</div>
     </div>
 
     <script>
         const tg = window.Telegram.WebApp;
         tg.ready();
-        tg.expand(); // Разворачиваем на весь экран
+        tg.expand();
 
-        // Проверяем, кто открыл приложение (в самом коде чужих ID нет!)
-        const user = tg.initDataUnsafe?.user;
-        const greetingEl = document.getElementById("greeting");
-        const infoEl = document.getElementById("user-info");
+        // 👇 ВСТАВЬТЕ СЮДА ССЫЛКУ ИЗ ТЕРМИНАЛА PYTHON (без слэша на конце)
+        const SERVER_URL = "https://ВАША-ССЫЛКА.trycloudflare.com";
 
-        if (user) {
-            greetingEl.innerText = `Привет, ${user.first_name}!`;
-            infoEl.innerText = `Ваш Telegram ID: ${user.id}`;
-        } else {
-            greetingEl.innerText = "Режим браузера";
-            infoEl.innerText = "Откройте через Telegram для привязки профиля";
+        const user = tg.initDataUnsafe?.user || { id: 777000, first_name: "Путник (Браузер)" };
+
+        async function loadState() {
+            try {
+                const res = await fetch(`${SERVER_URL}/api/state`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ user_id: user.id, username: user.first_name })
+                });
+                const data = await res.json();
+
+                if (!data.allowed) {
+                    document.body.innerHTML = `<div class="card status-err"><h3>⛔ ${data.error}</h3></div>`;
+                    return;
+                }
+
+                document.getElementById("conn-status").innerText = "🟢 Онлайн";
+                document.getElementById("hero-name").innerText = data.hero.name;
+                document.getElementById("hero-class").innerText = data.hero.class_level;
+                document.getElementById("hero-hp").innerText = data.hero.hp;
+                document.getElementById("hero-ac").innerText = data.hero.ac;
+                document.getElementById("hero-mod").innerText = `+${data.hero.str_mod}`;
+                renderLog(data.log);
+            } catch (e) {
+                document.getElementById("conn-status").innerHTML = `<span class="status-err">🔴 Сервер недоступен</span>`;
+                document.getElementById("party-log").innerText = "Проверьте, запущен ли server.py и правильная ли ссылка в SERVER_URL.";
+            }
         }
 
-        let logCount = 0;
+        async function rollOnServer() {
+            if (tg.HapticFeedback) tg.HapticFeedback.impactOccurred("medium");
 
-        function rollD20() {
-            // Вибрация смартфона при броске (работает в мобильном Telegram)
-            if (tg.HapticFeedback) {
-                tg.HapticFeedback.impactOccurred("medium");
+            const res = await fetch(`${SERVER_URL}/api/roll`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ user_id: user.id, username: user.first_name })
+            });
+            const data = await res.json();
+
+            if (data.allowed) {
+                document.getElementById("dice-display").innerText = `${data.total} (куб: ${data.d20})`;
+                renderLog(data.log);
             }
-
-            const roll = Math.floor(Math.random() * 20) + 1;
-            const resEl = document.getElementById("dice-result");
-            resEl.className = "dice-box";
-
-            if (roll === 20) {
-                resEl.innerText = "20 🔥";
-                resEl.classList.add("crit-success");
-            } else if (roll === 1) {
-                resEl.innerText = "1 💀";
-                resEl.classList.add("crit-fail");
-            } else {
-                resEl.innerText = roll;
-            }
-
-            const logEl = document.getElementById("log");
-            if (logCount === 0) logEl.innerHTML = "";
-            logCount++;
-
-            const time = new Date().toLocaleTimeString();
-            logEl.innerHTML = `<div>[${time}] Выпало: <b>${roll}</b></div>` + logEl.innerHTML;
         }
+
+        function renderLog(logs) {
+            const container = document.getElementById("party-log");
+            container.innerHTML = logs.map(item => `<div class="log-item">${item}</div>`).join("");
+        }
+
+        loadState();
     </script>
 </body>
 </html>
