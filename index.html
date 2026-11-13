@@ -4,27 +4,76 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
-    <title>D&D Python Server Test</title>
+    <title>D&D Tavern Mini App</title>
     <style>
-        body { background: #181825; color: #cdd6f4; font-family: sans-serif; padding: 16px; margin: 0; }
-        .card { background: #1e1e2e; border: 1px solid #313244; border-radius: 12px; padding: 14px; margin-bottom: 12px; }
-        .row { display: flex; justify-content: space-between; margin: 6px 0; font-size: 15px; }
-        .dice-val { font-size: 42px; font-weight: bold; text-align: center; color: #cba6f7; margin: 10px 0; }
-        button { width: 100%; padding: 14px; background: #cba6f7; color: #11111b; border: none; border-radius: 10px; font-size: 16px; font-weight: bold; cursor: pointer; }
-        button:active { opacity: 0.85; }
-        .log-item { font-size: 13px; padding: 6px 0; border-bottom: 1px solid #313244; color: #a6adc8; }
-        .status-ok { color: #a6e3a1; font-size: 12px; }
+        body {
+            background: #181825;
+            color: #cdd6f4;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            padding: 16px;
+            margin: 0;
+        }
+        .card {
+            background: #1e1e2e;
+            border: 1px solid #313244;
+            border-radius: 12px;
+            padding: 14px;
+            margin-bottom: 12px;
+            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.25);
+        }
+        .header-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 8px;
+        }
+        .row {
+            display: flex;
+            justify-content: space-between;
+            margin: 6px 0;
+            font-size: 15px;
+        }
+        .dice-val {
+            font-size: 42px;
+            font-weight: bold;
+            text-align: center;
+            color: #cba6f7;
+            margin: 12px 0;
+            min-height: 50px;
+        }
+        .crit-hit { color: #a6e3a1; }
+        .crit-miss { color: #f38ba8; }
+        button {
+            width: 100%;
+            padding: 14px;
+            background: #cba6f7;
+            color: #11111b;
+            border: none;
+            border-radius: 10px;
+            font-size: 16px;
+            font-weight: bold;
+            cursor: pointer;
+        }
+        button:active { transform: scale(0.98); opacity: 0.9; }
+        button:disabled { background: #45475a; color: #7f849c; cursor: not-allowed; }
+        .log-item {
+            font-size: 13px;
+            padding: 6px 0;
+            border-bottom: 1px solid #313244;
+            color: #a6adc8;
+        }
+        .status-ok { color: #a6e3a1; font-size: 12px; font-weight: bold; }
         .status-err { color: #f38ba8; font-size: 13px; }
     </style>
 </head>
 <body>
 
     <div class="card">
-        <div style="display:flex; justify-content:space-between; align-items:center;">
-            <h3 id="hero-name" style="margin:0;">Подключение к ноутбуку...</h3>
+        <div class="header-row">
+            <h3 id="hero-name" style="margin:0;">Подключение к серверу...</h3>
             <span id="conn-status" class="status-ok">⏳</span>
         </div>
-        <div class="row"><span>Класс:</span> <b id="hero-class">—</b></div>
+        <div class="row"><span>Класс и уровень:</span> <b id="hero-class">—</b></div>
         <div class="row"><span>Здоровье (HP):</span> <b id="hero-hp">—</b></div>
         <div class="row"><span>Класс Доспеха (AC):</span> <b id="hero-ac">—</b></div>
         <div class="row"><span>Бонус атаки (Сила):</span> <b id="hero-mod">—</b></div>
@@ -32,12 +81,15 @@
 
     <div class="card">
         <div id="dice-display" class="dice-val">🎲</div>
-        <button onclick="rollOnServer()">⚔️ Атаковать (расчёт на Python)</button>
+        <button id="roll-btn" onclick="rollOnServer()">⚔️ Атаковать (расчёт на Python)</button>
     </div>
 
     <div class="card">
-        <b style="display:block; margin-bottom:8px;">Общий журнал комнаты (с ноутбука):</b>
-        <div id="party-log">Ожидание ответа сервера...</div>
+        <div class="header-row">
+            <b>Общий журнал комнаты:</b>
+            <span style="font-size:12px; color:#6c7086; cursor:pointer;" onclick="loadState()">🔄 Обновить</span>
+        </div>
+        <div id="party-log">Ожидание ответа от ноутбука...</div>
     </div>
 
     <script>
@@ -45,12 +97,29 @@
         tg.ready();
         tg.expand();
 
-        // 👇 ВСТАВЬТЕ СЮДА ССЫЛКУ ИЗ ТЕРМИНАЛА PYTHON (без слэша на конце)
-        const SERVER_URL = "https://ВАША-ССЫЛКА.trycloudflare.com";
+        // 1. Автоматически получаем актуальную ссылку туннеля из параметра ?api=... от бота
+        const urlParams = new URLSearchParams(window.location.search);
+        const apiFromUrl = urlParams.get("api");
 
+        if (apiFromUrl) {
+            localStorage.setItem("dnd_server_url", apiFromUrl.replace(/\/$/, ""));
+        }
+
+        const SERVER_URL = apiFromUrl
+            ? apiFromUrl.replace(/\/$/, "")
+            : localStorage.getItem("dnd_server_url");
+
+        // 2. Получаем данные игрока из Telegram (в коде нет чужих ID или секретов)
         const user = tg.initDataUnsafe?.user || { id: 777000, first_name: "Путник (Браузер)" };
 
         async function loadState() {
+            if (!SERVER_URL) {
+                document.getElementById("conn-status").innerHTML = `<span class="status-err">🔴 Нет ссылки API</span>`;
+                document.getElementById("party-log").innerText =
+                    "Запустите server.py на ноутбуке и заново откройте приложение через кнопку в боте.";
+                return;
+            }
+
             try {
                 const res = await fetch(`${SERVER_URL}/api/state`, {
                     method: "POST",
@@ -72,24 +141,47 @@
                 document.getElementById("hero-mod").innerText = `+${data.hero.str_mod}`;
                 renderLog(data.log);
             } catch (e) {
-                document.getElementById("conn-status").innerHTML = `<span class="status-err">🔴 Сервер недоступен</span>`;
-                document.getElementById("party-log").innerText = "Проверьте, запущен ли server.py и правильная ли ссылка в SERVER_URL.";
+                document.getElementById("conn-status").innerHTML = `<span class="status-err">🔴 Офлайн</span>`;
+                document.getElementById("party-log").innerText =
+                    "Сервер на ноутбуке не отвечает. Если вы перезапускали server.py, закройте и заново откройте окно в Telegram.";
             }
         }
 
         async function rollOnServer() {
+            if (!SERVER_URL) return;
             if (tg.HapticFeedback) tg.HapticFeedback.impactOccurred("medium");
 
-            const res = await fetch(`${SERVER_URL}/api/roll`, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ user_id: user.id, username: user.first_name })
-            });
-            const data = await res.json();
+            const btn = document.getElementById("roll-btn");
+            btn.disabled = true;
 
-            if (data.allowed) {
-                document.getElementById("dice-display").innerText = `${data.total} (куб: ${data.d20})`;
-                renderLog(data.log);
+            try {
+                const res = await fetch(`${SERVER_URL}/api/roll`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ user_id: user.id, username: user.first_name })
+                });
+                const data = await res.json();
+
+                if (data.allowed) {
+                    const diceEl = document.getElementById("dice-display");
+                    diceEl.className = "dice-val";
+
+                    if (data.d20 === 20) {
+                        diceEl.innerText = `🔥 ${data.total} (нат. 20!)`;
+                        diceEl.classList.add("crit-hit");
+                    } else if (data.d20 === 1) {
+                        diceEl.innerText = `💀 Провал (нат. 1)`;
+                        diceEl.classList.add("crit-miss");
+                    } else {
+                        diceEl.innerText = `${data.total} (куб: ${data.d20})`;
+                    }
+
+                    renderLog(data.log);
+                }
+            } catch (e) {
+                document.getElementById("conn-status").innerHTML = `<span class="status-err">🔴 Ошибка связи</span>`;
+            } finally {
+                btn.disabled = false;
             }
         }
 
@@ -99,6 +191,8 @@
         }
 
         loadState();
+        // Автоматически обновляем журнал комнаты каждые 4 секунды, чтобы видеть броски друзей
+        setInterval(loadState, 4000);
     </script>
 </body>
 </html>
